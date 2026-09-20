@@ -1,0 +1,840 @@
+{
+  "name": "Example - telegram-optin",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "639eeb7c-df87-4eff-94ff-073d870604e2",
+      "name": "On Telegram Message",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        -1568,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "channel-link",
+              "name": "channel_link",
+              "type": "string",
+              "value": "https://t.me/+YOUR_CHANNEL_INVITE"
+            },
+            {
+              "id": "course-id",
+              "name": "course_id",
+              "type": "string",
+              "value": "YOUR_TEACHABLE_COURSE_ID"
+            },
+            {
+              "id": "test-mode",
+              "name": "test_mode",
+              "type": "string",
+              "value": "true"
+            },
+            {
+              "id": "test-chat-ids",
+              "name": "test_chat_ids",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "9168590b-d948-4e93-873b-d0b280aac226",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1136,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const upd = $json || {};\nconst msg = upd.message || upd;\nconst chat = msg.chat || {};\nconst from = msg.from || {};\nconst text = String(msg.text || '').trim();\n\nfunction normEmail(raw) {\n  if (!raw) return '';\n  let s = String(raw).trim().toLowerCase();\n  const at = s.lastIndexOf('@');\n  if (at < 1) return s;\n  let local = s.slice(0, at);\n  let domain = s.slice(at + 1);\n  const plus = local.indexOf('+');\n  if (plus > -1) local = local.slice(0, plus);\n  if (domain === 'googlemail.com') domain = 'gmail.com';\n  if (domain === 'gmail.com') local = local.split('.').join('');\n  return local + '@' + domain;\n}\n\nlet kind = 'help';\nlet payload = '';\nlet email = '';\n\nif (text.indexOf('/start') === 0) {\n  kind = 'start';\n  payload = text.slice(6).trim();\n} else if (/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(text)) {\n  kind = 'email';\n  email = text;\n}\n\nreturn [{ json: {\n  chat_id: String(chat.id || from.id || ''),\n  tg_user_id: String(from.id || ''),\n  username: String(from.username || ''),\n  first_name: String(from.first_name || ''),\n  text: text,\n  kind: kind,\n  payload: payload,\n  email: email,\n  email_norm: normEmail(email)\n}}];\n"
+      },
+      "id": "d28d4e89-aaff-43e1-afdc-a288a9e58dcf",
+      "name": "Classify Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "returnAll": true
+      },
+      "id": "a046a946-7f0d-49a6-ab57-54ca1ae5b4a1",
+      "name": "Load All Members",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -688,
+        320
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Classify Message').first().json;\nconst cfg = $('Config').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r && r.id !== undefined);\n\nconst testMode = String(cfg.test_mode) === 'true';\nconst allow = String(cfg.test_chat_ids || '').split(',').map(s => s.trim()).filter(Boolean);\n\nfunction out(outcome, extra) {\n  return [{ json: Object.assign({}, msg, { outcome: outcome, channel_link: cfg.channel_link }, extra || {}) }];\n}\n\nif (testMode && allow.indexOf(msg.chat_id) === -1) {\n  return out('ignored_not_allowlisted', { note: 'TEST MODE: add this chat_id to Config.test_chat_ids to enable replies' });\n}\n\nconst bound = rows.find(r => String(r.telegram_chat_id || '') === msg.chat_id && r.status !== 'unmatched');\nif (bound) {\n  return out('already_bound', { row_id: bound.id, full_name: bound.full_name, teachable_user_id: bound.teachable_user_id });\n}\n\nif (msg.kind === 'start') return out('ask_email');\nif (msg.kind !== 'email') return out('help');\n\nconst unmatched = rows.find(r => String(r.telegram_chat_id || '') === msg.chat_id && r.status === 'unmatched');\nconst attempts = unmatched ? Number(unmatched.bind_attempts || 0) : 0;\nif (attempts >= 3) return out('too_many_attempts');\n\nconst match = rows.find(r => String(r.email_norm || '').toLowerCase() === msg.email_norm && r.status !== 'unmatched');\nif (!match) {\n  return out('not_found', { next_attempts: attempts + 1 });\n}\nif (String(match.telegram_chat_id || '') !== '') {\n  return out('already_taken');\n}\n\nreturn out('bind_ok', {\n  row_id: match.id,\n  teachable_user_id: match.teachable_user_id,\n  full_name: match.full_name,\n  batch: match.batch,\n  percent_complete: Number(match.percent_complete || 0)\n});\n"
+      },
+      "id": "265832e0-e774-4bc5-a1b1-351f5ac0a422",
+      "name": "Resolve Bind",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "bind_ok",
+                    "id": "dc3922ca-5b95-43e1-aa52-b1e96fc89e96"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "already_bound",
+                    "id": "c18b72fd-29e5-422b-b58a-4f6210d41298"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ask_email",
+                    "id": "9cdaa63c-ccbb-4435-8aa5-f8048b39a1b7"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "not_found",
+                    "id": "54e360ae-2bac-4494-b56c-c3c41868f202"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "already_taken",
+                    "id": "ff852902-8453-45ca-9fe1-4779c1504d57"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "too_many_attempts",
+                    "id": "e1f312db-daef-4661-862e-1c5674948d24"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outcome }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "help",
+                    "id": "2251e17d-d52c-4f77-ae14-99b87fe1d12c"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Ignored"
+        }
+      },
+      "id": "33b5f533-ab60-4429-bb3a-e8e2947011a8",
+      "name": "Route Outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -256,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "telegram_chat_id": "={{ $json.chat_id }}",
+            "telegram_user_id": "={{ $json.tg_user_id }}",
+            "telegram_username": "={{ $json.username }}",
+            "dm_optin_at": "={{ $now.toISO() }}",
+            "dm_status": "ok"
+          }
+        },
+        "options": {}
+      },
+      "id": "784af67a-55e5-4fdf-85fc-7f613f63410f",
+      "name": "Bind Member Row",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://developers.teachable.com/v1/courses/{{ $('Config').first().json.course_id }}/progress",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "={{ $('Resolve Bind').first().json.teachable_user_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dd6b4334-9d5c-495c-bed9-5551f3b3e1d9",
+      "name": "Fetch Live Progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('Resolve Bind').first().json;\nconst resp = $json || {};\nconst cp = resp.course_progress || {};\nconst pct = cp.percent_complete !== undefined && cp.percent_complete !== null\n  ? Number(cp.percent_complete)\n  : Number(r.percent_complete || 0);\n\nfunction esc(s) {\n  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nfunction ar(n) {\n  const d = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];\n  const s = String(n);\n  let o = '';\n  for (let i = 0; i < s.length; i++) {\n    const c = s.charAt(i);\n    o += (c >= '0' && c <= '9') ? d[Number(c)] : c;\n  }\n  return o;\n}\n\nconst raw = String(r.full_name || r.first_name || '').trim();\nconst name = esc(raw.split(' ')[0] || 'صديقنا');\n\nlet line;\nif (pct === 0) {\n  line = 'ما بدأت الدورة بعد — أول درس ما ياخذ منك أكثر من عشر دقايق.';\n} else if (pct >= 100) {\n  line = 'خلصت الدورة كاملة 🎉 عساك على القوة.';\n} else {\n  line = 'أنجزت ' + ar(pct) + '٪ من الدورة إلى الآن.';\n}\n\nconst text = 'هلا ' + name + ' 👋\\n\\n'\n  + 'ربطنا حسابك بنجاح ✅\\n'\n  + line + '\\n\\n'\n  + 'انضم لقناة الطلاب من هنا:\\n'\n  + r.channel_link + '\\n\\n'\n  + 'بنرسل لك تحديث قصير عن تقدّمك كل فترة عشان تكمل دورتك 💪\\n'\n  + 'لا إشارات ولا توصيات — متابعة تقدّم فقط.';\n\nreturn [{ json: { chat_id: r.chat_id, text: text, percent_complete: pct, row_id: r.row_id } }];\n"
+      },
+      "id": "bea3df5c-eb00-4b3d-81f3-ca49ca319c95",
+      "name": "Compose Welcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "bee66083-8faf-4f02-9398-da858d176ada",
+      "name": "Send Welcome DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "=حسابك مربوط ✅\n\nرابط قناة الطلاب:\n{{ $json.channel_link }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "fbea21ca-75a8-4699-97cf-f307aab960a4",
+      "name": "Send Already Bound DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        144
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "هلا فيك 👋\n\nعشان نربط حسابك ونتابع تقدّمك في الدورة، أرسل لنا الإيميل اللي اشتريت فيه الدورة.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "cd62c35f-dfa9-4780-a523-eab99ab450b2",
+      "name": "Send Ask Email DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        256
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_chat_id",
+              "keyValue": "={{ $json.chat_id }}"
+            },
+            {
+              "keyName": "status",
+              "keyValue": "unmatched"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "telegram_chat_id"
+          ],
+          "value": {
+            "telegram_chat_id": "={{ $json.chat_id }}",
+            "telegram_user_id": "={{ $json.tg_user_id }}",
+            "telegram_username": "={{ $json.username }}",
+            "email": "={{ $json.email }}",
+            "email_norm": "={{ $json.email_norm }}",
+            "status": "unmatched",
+            "dm_enabled": false,
+            "bind_attempts": "={{ $json.next_attempts }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "dfbe8e49-01bf-4f1c-87e1-c1b02d6a1486",
+      "name": "Record Unmatched Attempt",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Resolve Bind').first().json.chat_id }}",
+        "text": "ما لقينا هذا الإيميل في قائمة الطلاب 🤔\n\nتأكد إنه نفس الإيميل اللي اشتريت فيه الدورة، وحاول مرة ثانية.\nإذا متأكد منه، تواصل معنا وبنساعدك.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "6c894320-68c8-4be2-a6be-5ba6569702a0",
+      "name": "Send Not Found DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        432
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "هذا الإيميل مربوط بحساب تيليجرام ثاني.\n\nتواصل معنا وبنساعدك نحل الموضوع.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "7bb5fec5-965c-4d21-94a9-20ce78abfa15",
+      "name": "Send Already Taken DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "حاولت أكثر من مرة وما ضبطت 🙏\n\nتواصل معنا مباشرة وبنربط حسابك يدوياً.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "32675971-9e66-4ea0-8eab-da981ab72f3f",
+      "name": "Send Too Many Attempts DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        704
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "أرسل لنا الإيميل اللي اشتريت فيه الدورة عشان نربط حسابك ونتابع تقدّمك.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "e1968a47-fc02-4a8a-be41-309ae72a64f2",
+      "name": "Send Help DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        848
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "4b01b613-b8ae-4c30-8405-d35513f368f0",
+      "name": "Ignored - No Reply",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        992
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Opt-in binder\n\nA Telegram bot cannot DM anyone who has not messaged it first, and joining the channel does NOT grant DM permission. This workflow is where DM permission gets captured.\n\n**Flow:** /start -> ask for purchase email -> match against email_norm -> store telegram_chat_id -> reply with their live progress and the channel link.\n\n**SAFETY GATE:** Config.test_mode = true means only chat_ids listed in Config.test_chat_ids get any reply at all. An empty list means nobody gets a reply. To find your own chat_id: message the bot, then read chat_id from the Resolve Bind execution output.\n\n**Bind guards:** max 3 failed email attempts per chat_id; an email already bound to another Telegram account is refused, never rebound.",
+        "height": 200,
+        "width": 1252,
+        "color": 3
+      },
+      "id": "64d90738-dec2-44d9-9e08-a014d1beccd2",
+      "name": "Sticky Note 2b071774",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1616,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const c = $('Compose Welcome').item.json;\nconst resp = $json || {};\nconst ok = resp.ok === true || Boolean(resp.result && resp.result.message_id);\n\nlet status = 'ok';\nlet err = '';\nif (!ok) {\n  let msg = '';\n  try { msg = String(resp.error || resp.message || JSON.stringify(resp)); } catch (e) { msg = 'unknown error'; }\n  err = msg.slice(0, 300);\n  status = /403|blocked|bot was blocked|chat not found|user is deactivated|deactivated/i.test(msg) ? 'blocked' : 'error';\n}\n\nreturn { json: {\n  row_id: c.row_id,\n  chat_id: c.chat_id,\n  ok: ok,\n  dm_status: status,\n  last_error: err\n}};\n"
+      },
+      "id": "d4b18844-2a22-4ee6-878e-4ae5ba41a480",
+      "name": "Record Welcome Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "dm_status": "={{ $json.dm_status }}",
+            "last_error": "={{ $json.last_error }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "1426277f-b3d8-480b-b82a-83a26838b260",
+      "name": "Stamp Welcome Result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -1360,
+        320
+      ],
+      "id": "6898f73c-2ff9-4c2a-800c-a1c4e39c67bf",
+      "name": "Wait"
+    }
+  ],
+  "connections": {
+    "On Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Classify Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Message": {
+      "main": [
+        [
+          {
+            "node": "Load All Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load All Members": {
+      "main": [
+        [
+          {
+            "node": "Resolve Bind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Bind": {
+      "main": [
+        [
+          {
+            "node": "Route Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Outcome": {
+      "main": [
+        [
+          {
+            "node": "Bind Member Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Already Bound DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Ask Email DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Unmatched Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Already Taken DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Too Many Attempts DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignored - No Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bind Member Row": {
+      "main": [
+        [
+          {
+            "node": "Fetch Live Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Live Progress": {
+      "main": [
+        [
+          {
+            "node": "Compose Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Welcome": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Unmatched Attempt": {
+      "main": [
+        [
+          {
+            "node": "Send Not Found DM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Welcome DM": {
+      "main": [
+        [
+          {
+            "node": "Record Welcome Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Welcome Result": {
+      "main": [
+        [
+          {
+            "node": "Stamp Welcome Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "course_telegram_batches",
+  "columns": [
+    {"name": "batch", "type": "string"},
+    {"name": "label", "type": "string"},
+    {"name": "enrolled_from", "type": "date"},
+    {"name": "enrolled_to", "type": "date"},
+    {"name": "dm_active", "type": "boolean"},
+    {"name": "channel_post_active", "type": "boolean"},
+    {"name": "total_members", "type": "number"},
+    {"name": "started_count", "type": "number"},
+    {"name": "finished_count", "type": "number"},
+    {"name": "last_post_on", "type": "date"}
+  ],
+  "sample_row": {
+    "batch": "batch_01",
+    "label": "Cohort 1",
+    "dm_active": true,
+    "channel_post_active": true,
+    "total_members": 0,
+    "started_count": 0,
+    "finished_count": 0
+  }
+}

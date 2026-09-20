@@ -1,0 +1,43 @@
+{
+  "name": "course_telegram_members",
+  "columns": [
+    {"name": "teachable_user_id", "type": "string"},
+    {"name": "full_name", "type": "string"},
+    {"name": "email", "type": "string"},
+    {"name": "email_norm", "type": "string"},
+    {"name": "batch", "type": "string"},
+    {"name": "status", "type": "string"},
+    {"name": "telegram_chat_id", "type": "string"},
+    {"name": "telegram_user_id", "type": "string"},
+    {"name": "telegram_username", "type": "string"},
+    {"name": "dm_optin_at", "type": "date"},
+    {"name": "dm_status", "type": "string"},
+    {"name": "dm_enabled", "type": "boolean"},
+    {"name": "bind_attempts", "type": "number"},
+    {"name": "last_error", "type": "string"},
+    {"name": "percent_complete", "type": "number"},
+    {"name": "prev_percent", "type": "number"},
+    {"name": "ever_finished", "type": "boolean"},
+    {"name": "dm_count", "type": "number"},
+    {"name": "last_dm_at", "type": "date"}
+  ],
+  "sample_row": {
+    "teachable_user_id": "0",
+    "full_name": "Example Student",
+    "email": "student@example.com",
+    "email_norm": "student@example.com",
+    "batch": "batch_01",
+    "status": "enrolled",
+    "telegram_chat_id": "",
+    "telegram_user_id": "",
+    "telegram_username": "",
+    "dm_status": "ok",
+    "dm_enabled": false,
+    "bind_attempts": 0,
+    "last_error": "",
+    "percent_complete": 0,
+    "prev_percent": 0,
+    "ever_finished": false,
+    "dm_count": 0
+  }
+}

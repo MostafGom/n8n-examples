@@ -1,0 +1,984 @@
+{
+  "name": "Example - telegram-daily",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 19
+            }
+          ]
+        }
+      },
+      "id": "cbb815bb-7d9b-4db0-98c8-5a2c95a8d110",
+      "name": "Daily 19:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1984,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "active-batch",
+              "name": "active_batch",
+              "type": "string",
+              "value": "batch_01"
+            },
+            {
+              "id": "course-id",
+              "name": "course_id",
+              "type": "string",
+              "value": "YOUR_TEACHABLE_COURSE_ID"
+            },
+            {
+              "id": "channel-id",
+              "name": "channel_id",
+              "type": "string",
+              "value": "YOUR_TELEGRAM_CHANNEL_ID"
+            },
+            {
+              "id": "cadence-h",
+              "name": "cadence_h",
+              "type": "string",
+              "value": "24"
+            },
+            {
+              "id": "grace-h",
+              "name": "optin_grace_h",
+              "type": "string",
+              "value": "24"
+            },
+            {
+              "id": "max-members",
+              "name": "max_members_per_run",
+              "type": "string",
+              "value": "300"
+            },
+            {
+              "id": "max-count",
+              "name": "max_dm_count",
+              "type": "string",
+              "value": "14"
+            },
+            {
+              "id": "dry-run",
+              "name": "dry_run",
+              "type": "string",
+              "value": "true"
+            },
+            {
+              "id": "only-on-change",
+              "name": "post_only_on_change",
+              "type": "string",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4f1b861c-ded5-49da-adbe-f457b5077e5c",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1760,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_batches",
+          "mode": "list",
+          "value": "bHyiVPSHhw13PUqA"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "batch",
+              "keyValue": "={{ $('Config').first().json.active_batch }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "67cd0dde-c385-4d5b-9b26-084f106a595c",
+      "name": "Load Batches",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1536,
+        368
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "batch",
+              "keyValue": "={{ $('Config').first().json.active_batch }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "72257ad9-d24c-4a02-bc48-5572728f3edf",
+      "name": "Load Members",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -1312,
+        368
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst batchRows = $('Load Batches').all().map(i => i.json).filter(b => b && b.batch);\nconst members = $input.all().map(i => i.json).filter(r => r && r.id !== undefined && r.teachable_user_id);\n\nconst byBatch = {};\nfor (const b of batchRows) byBatch[b.batch] = b;\n\nconst out = [];\nfor (const m of members) {\n  const b = byBatch[m.batch];\n  if (!b) continue;\n  if (m.status === 'unmatched' || m.status === 'gone') continue;\n  out.push({ json: {\n    row_id: m.id,\n    teachable_user_id: Number(m.teachable_user_id),\n    full_name: m.full_name || '',\n    batch: m.batch,\n    batch_dm_active: b.dm_active === true,\n    dm_enabled: m.dm_enabled === true,\n    telegram_chat_id: String(m.telegram_chat_id || ''),\n    dm_status: m.dm_status || 'ok',\n    dm_count: Number(m.dm_count || 0),\n    dm_optin_at: m.dm_optin_at || null,\n    last_dm_at: m.last_dm_at || null,\n    stored_percent: Number(m.percent_complete || 0),\n    prev_percent: Number(m.prev_percent || 0),\n    stored_ever_finished: m.ever_finished === true\n  }});\n}\n\nout.sort(function (a, b) {\n  const at = a.json.last_dm_at ? new Date(a.json.last_dm_at).getTime() : 0;\n  const bt = b.json.last_dm_at ? new Date(b.json.last_dm_at).getTime() : 0;\n  return at - bt;\n});\n\nconst cap = Number(cfg.max_members_per_run || 300);\nif (out.length > cap) {\n  console.log('CAPPED: ' + out.length + ' members in tracked batches, processing ' + cap + ' this run; the rest roll to tomorrow');\n}\nreturn out.slice(0, cap);\n"
+      },
+      "id": "07e77359-218b-4abe-ae19-0bfde0b7ae46",
+      "name": "Select Batch Members",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "batch",
+              "keyValue": "={{ $('Config').first().json.active_batch }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "570faf1c-fb2e-4b32-9305-1b039812995a",
+      "name": "Reload Members For Totals",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -656,
+        112
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst batchRows = $('Load Batches').all().map(i => i.json).filter(b => b && b.batch);\nconst members = $input.all().map(i => i.json).filter(r => r && r.id !== undefined && r.teachable_user_id);\n\nconst today = new Date().toISOString().slice(0, 10);\nconst onlyOnChange = String(cfg.post_only_on_change) === 'true';\nconst out = [];\n\nfunction ar(n) {\n  const d = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];\n  const s = String(n);\n  let o = '';\n  for (let i = 0; i < s.length; i++) {\n    const c = s.charAt(i);\n    o += (c >= '0' && c <= '9') ? d[Number(c)] : c;\n  }\n  return o;\n}\n\nfor (const b of batchRows) {\n  if (b.channel_post_active !== true) continue;\n  if (b.last_post_on && String(b.last_post_on).slice(0, 10) === today) continue;\n\n  const mine = members.filter(m => m.batch === b.batch && m.status !== 'unmatched' && m.status !== 'gone');\n  const total = mine.length;\n  if (total === 0) continue;\n\n  const started = mine.filter(m => Number(m.percent_complete || 0) > 0).length;\n  const halfway = mine.filter(m => Number(m.percent_complete || 0) >= 50).length;\n  const finished = mine.filter(m => m.ever_finished === true).length;\n  const linked = mine.filter(m => String(m.telegram_chat_id || '') !== '').length;\n\n  if (onlyOnChange\n      && started === Number(b.started_count || 0)\n      && finished === Number(b.finished_count || 0)\n      && total === Number(b.total_members || 0)) continue;\n\n  const text = 'متابعة تقدّم دفعة ' + (b.label || b.batch) + ' 📊\\n\\n'\n    + 'بدأوا الدورة: ' + ar(started) + ' من ' + ar(total) + '\\n'\n    + 'تجاوزوا نص الدورة: ' + ar(halfway) + '\\n'\n    + 'خلّصوا الدورة كاملة: ' + ar(finished) + '\\n\\n'\n    + 'كل يوم في ناس تخلّص — لا تخليها تفوتك 💪';\n\n  out.push({ json: {\n    batch: b.batch, row_id: b.id, text: text, channel_id: cfg.channel_id,\n    total: total, started: started, halfway: halfway, finished: finished, linked: linked,\n    post_date: today\n  }});\n}\n\nreturn out;\n"
+      },
+      "id": "5305a804-66e7-4df7-b56f-93cb7e61dd20",
+      "name": "Build Channel Post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Config').first().json.dry_run }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true",
+              "id": "aa904a3a-8712-4cae-8f6f-20af6194d197"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d7410123-9a08-45b7-80a8-92c909154437",
+      "name": "Channel Dry Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        112
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "1825e9ff-6d2a-4335-973e-975790036718",
+      "name": "Channel Post - Dry Run Only",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.channel_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "770a837f-0779-4454-b487-06e951c89900",
+      "name": "Post To Channel",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_batches",
+          "mode": "list",
+          "value": "bHyiVPSHhw13PUqA"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $('Build Channel Post').item.json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "total_members": "={{ $('Build Channel Post').item.json.total }}",
+            "started_count": "={{ $('Build Channel Post').item.json.started }}",
+            "finished_count": "={{ $('Build Channel Post').item.json.finished }}",
+            "last_post_on": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "batch",
+              "displayName": "batch",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "label",
+              "displayName": "label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "enrolled_from",
+              "displayName": "enrolled_from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "enrolled_to",
+              "displayName": "enrolled_to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "dm_active",
+              "displayName": "dm_active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "channel_post_active",
+              "displayName": "channel_post_active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_members",
+              "displayName": "total_members",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "started_count",
+              "displayName": "started_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "finished_count",
+              "displayName": "finished_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_post_on",
+              "displayName": "last_post_on",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "5815075f-1be3-4151-9e1a-e26066999d3b",
+      "name": "Update Batch Counters",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://developers.teachable.com/v1/courses/{{ $('Config').first().json.course_id }}/progress",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "={{ $json.teachable_user_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "90a76cac-e1c8-4342-b17e-551997fbe848",
+      "name": "Get Course Progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -656,
+        528
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const m = $('Loop Over Members').item.json;\nconst cfg = $('Config').first().json;\nconst resp = $json || {};\nconst cp = resp.course_progress || {};\n\nfunction esc(s) {\n  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nfunction ar(n) {\n  const d = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];\n  const s = String(n);\n  let o = '';\n  for (let i = 0; i < s.length; i++) {\n    const c = s.charAt(i);\n    o += (c >= '0' && c <= '9') ? d[Number(c)] : c;\n  }\n  return o;\n}\n\nconst fetched = cp.percent_complete !== undefined && cp.percent_complete !== null;\nconst pct = fetched ? Number(cp.percent_complete) : Number(m.stored_percent || 0);\nconst finishedNow = Boolean(cp.completed_at) || pct === 100;\nconst everFinished = Boolean(m.stored_ever_finished) || finishedNow;\n\nconst nowMs = new Date().getTime();\nconst cadenceMs = Number(cfg.cadence_h || 72) * 3600000;\nconst graceMs = Number(cfg.optin_grace_h || 48) * 3600000;\nconst maxCount = Number(cfg.max_dm_count || 8);\nconst dryRun = String(cfg.dry_run) === 'true';\n\nlet eligible = true;\nlet why = 'eligible';\nif (!m.batch_dm_active) { eligible = false; why = 'batch_dm_inactive'; }\nelse if (!m.dm_enabled) { eligible = false; why = 'dm_disabled'; }\nelse if (!m.telegram_chat_id) { eligible = false; why = 'not_linked'; }\nelse if (m.dm_status === 'blocked') { eligible = false; why = 'blocked'; }\nelse if (everFinished) { eligible = false; why = 'already_finished'; }\nelse if (Number(m.dm_count || 0) >= maxCount) { eligible = false; why = 'dm_cap_reached'; }\nelse if (!m.dm_optin_at) { eligible = false; why = 'no_optin_timestamp'; }\nelse if (nowMs - new Date(m.dm_optin_at).getTime() < graceMs) { eligible = false; why = 'within_optin_grace'; }\nelse if (m.last_dm_at && (nowMs - new Date(m.last_dm_at).getTime()) < cadenceMs) { eligible = false; why = 'within_cadence'; }\n\nconst name = esc(String(m.full_name || '').trim().split(' ')[0] || 'صديقنا');\nconst dmCount = Number(m.dm_count || 0);\nconst delta = pct - Number(m.prev_percent || 0);\n\nlet body;\nif (pct === 0) {\n  body = 'لاحظنا إنك ما بدأت الدورة بعد.\\nأول درس ما ياخذ منك أكثر من عشر دقايق — ابدأ فيه اليوم.';\n} else if (pct < 50) {\n  body = 'أنجزت ' + ar(pct) + '٪ من الدورة — أنت في بداية الطريق.\\nكمّل درسين بس هالأسبوع وبتلاحظ الصورة تتضح.';\n} else if (pct < 75) {\n  body = 'أنجزت ' + ar(pct) + '٪ — تجاوزت نص الدورة، وهذا أصعب جزء.\\nاللي باقي أقل من اللي سويته، لا توقف الحين.';\n} else {\n  body = 'أنجزت ' + ar(pct) + '٪ — باقي لك القليل عشان تخلّص الدورة كاملة.\\nجلسة وحدة وتنهيها.';\n}\n\nlet deltaLine = '';\nif (dmCount > 0) {\n  if (delta > 0) {\n    deltaLine = '\\n\\nتقدّمت ' + ar(delta) + '٪ من آخر مرة راسلناك — استمر 👏';\n  } else if (delta === 0) {\n    deltaLine = '\\n\\nمكانك نفسه من آخر مرة — درس واحد بس يحرّك الرقم.';\n  }\n}\n\nreturn { json: {\n  row_id: m.row_id,\n  teachable_user_id: m.teachable_user_id,\n  chat_id: m.telegram_chat_id,\n  batch: m.batch,\n  progress_fetched: fetched,\n  percent_complete: pct,\n  prev_percent: Number(m.prev_percent || 0),\n  ever_finished: everFinished,\n  dm_eligible: eligible,\n  dm_reason: why,\n  should_send: eligible && !dryRun,\n  dry_run: dryRun,\n  dm_count: dmCount,\n  text: 'هلا ' + name + ' 👋\\n\\n' + body + deltaLine\n}};\n"
+      },
+      "id": "dab9a213-c175-4960-a09f-70895a0d6a94",
+      "name": "Compute Member State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "percent_complete": "={{ $json.percent_complete }}",
+            "ever_finished": "={{ $json.ever_finished }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "0b23d041-83be-427b-ad7f-aaf70d481fe5",
+      "name": "Update Member Progress",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -224,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Compute Member State').item.json.should_send }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "id": "11660612-a1fd-4256-a4a6-05937d0b79a9"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a322777-9524-4ace-8fc6-a7a84df8ba1a",
+      "name": "Should Send DM?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Compute Member State').item.json.chat_id }}",
+        "text": "={{ $('Compute Member State').item.json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "345d1566-9c08-452e-8b2f-90f4023724e8",
+      "name": "Send Progress DM",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        416
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const c = $('Compute Member State').item.json;\nconst resp = $json || {};\nconst ok = resp.ok === true || Boolean(resp.result && resp.result.message_id);\n\nlet status = 'ok';\nlet err = '';\nif (!ok) {\n  let msg = '';\n  try { msg = String(resp.error || resp.message || JSON.stringify(resp)); } catch (e) { msg = 'unknown error'; }\n  err = msg.slice(0, 300);\n  status = /403|blocked|bot was blocked|chat not found|user is deactivated|deactivated/i.test(msg) ? 'blocked' : 'error';\n}\n\nreturn { json: {\n  row_id: c.row_id,\n  chat_id: c.chat_id,\n  ok: ok,\n  dm_status: status,\n  last_error: err,\n  new_dm_count: ok ? c.dm_count + 1 : c.dm_count,\n  percent_complete: c.percent_complete\n}};\n"
+      },
+      "id": "ed17a121-d34d-4a08-98ff-5e20d681c796",
+      "name": "Record DM Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9c5cf34e-b5ca-4217-bc56-161ff961148a",
+      "name": "Send OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "last_dm_at": "={{ $now.toISO() }}",
+            "dm_count": "={{ $json.new_dm_count }}",
+            "dm_status": "ok",
+            "last_error": "",
+            "prev_percent": "={{ $json.percent_complete }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "4eb96682-075f-4ef0-86fa-e05ff0341ba9",
+      "name": "Stamp DM Sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "6b40e3df-54c1-4c3a-ad50-82fa83582d51",
+      "name": "Throttle 1s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "6e1f05d6-2416-4a85-9adc-88c760aa8070",
+      "name": "Loop Over Members",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -880,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "cachedResultName": "course_telegram_members",
+          "mode": "list",
+          "value": "JLf1HIOTWAKwLe5y"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "value": {
+            "dm_status": "={{ $json.dm_status }}",
+            "last_error": "={{ $json.last_error }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "47a688e3-b3e4-440f-a81a-ce58dd7d1f4f",
+      "name": "Mark DM Failure",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Daily job — THE TABLE IS THE ROSTER\n\nMembership comes from course_telegram_members, not from Teachable. Only rows whose `batch` matches a row in course_telegram_batches are processed, and progress is fetched **one user at a time** via /courses/{id}/progress?user_id=. Nothing here pulls the whole enrollment list.\n\n**Order:** fetch each member progress -> update their row -> DM them if due -> after the loop, re-read the table and post the batch scoreboard. The channel numbers are therefore counted over the table, so the public number and the private ones always agree.\n\n**Column meanings:**\n- percent_complete = latest observed progress, refreshed every run for every member\n- prev_percent = progress at the LAST DM, written only when a DM is sent. delta = percent_complete - prev_percent is what the copy says.\n\n**SAFETY GATES (default-safe):** Config.dry_run=true bypasses every send; dm_active / channel_post_active per batch row; dm_enabled per member row. Progress is still fetched and rows still updated during a dry run — only sending is suppressed, so the run is fully inspectable.\n\n**There is deliberately NO test-recipient allowlist.** One existed during testing and was removed: left populated at go-live it silently drops every real student with not_in_test_allowlist while the run still reports success. To limit a test, limit the members table instead.",
+        "height": 200,
+        "width": 960,
+        "color": 5
+      },
+      "id": "61a55ed1-aff2-4e28-aebe-a5bca0626ce3",
+      "name": "Sticky Note a3e198b8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1808,
+        128
+      ]
+    }
+  ],
+  "connections": {
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Load Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Batches": {
+      "main": [
+        [
+          {
+            "node": "Load Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Members": {
+      "main": [
+        [
+          {
+            "node": "Select Batch Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Batch Members": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reload Members For Totals": {
+      "main": [
+        [
+          {
+            "node": "Build Channel Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Channel Post": {
+      "main": [
+        [
+          {
+            "node": "Channel Dry Run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Dry Run?": {
+      "main": [
+        [
+          {
+            "node": "Channel Post - Dry Run Only",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post To Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post To Channel": {
+      "main": [
+        [
+          {
+            "node": "Update Batch Counters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Course Progress": {
+      "main": [
+        [
+          {
+            "node": "Compute Member State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Member State": {
+      "main": [
+        [
+          {
+            "node": "Update Member Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Member Progress": {
+      "main": [
+        [
+          {
+            "node": "Should Send DM?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send DM?": {
+      "main": [
+        [
+          {
+            "node": "Send Progress DM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Throttle 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Progress DM": {
+      "main": [
+        [
+          {
+            "node": "Record DM Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record DM Result": {
+      "main": [
+        [
+          {
+            "node": "Send OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send OK?": {
+      "main": [
+        [
+          {
+            "node": "Stamp DM Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark DM Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp DM Sent": {
+      "main": [
+        [
+          {
+            "node": "Throttle 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Throttle 1s": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Members",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Members": {
+      "main": [
+        [
+          {
+            "node": "Reload Members For Totals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Course Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark DM Failure": {
+      "main": [
+        [
+          {
+            "node": "Throttle 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 19:00": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
