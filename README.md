@@ -16,6 +16,7 @@ Every file here is stripped of API tokens, credential objects, pinned execution 
 | --- | --- |
 | [Lead brief (Instagram + site)](workflows/lead-brief-ig-site/) | Sub-workflow: scrape IG + site, then an AI agent writes a cited lead brief |
 | [Teachable course follow-up (Telegram)](workflows/teachable-telegram-followup/) | Opt-in bot binds a student email, daily job DMs progress and posts a channel scoreboard |
+| [Chatwoot WhatsApp](workflows/chatwoot-whatsapp/) | Look up a contact by phone and send a WhatsApp template on their conversation |
 
 ## Adding another example
 

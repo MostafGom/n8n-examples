@@ -1,0 +1,746 @@
+{
+  "name": "Example - Chatwoot WhatsApp send template",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "phone",
+              "type": "string"
+            },
+            {
+              "name": "template_name",
+              "type": "string"
+            },
+            {
+              "name": "language",
+              "type": "string"
+            },
+            {
+              "name": "category",
+              "type": "string"
+            },
+            {
+              "name": "variables_json",
+              "type": "string"
+            },
+            {
+              "name": "processed_params_json",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "c2a0e002-0001-4a11-9c02-000000000001",
+      "name": "When called by parent",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base-url",
+              "name": "base_url",
+              "type": "string",
+              "value": "https://example.chatwoot.com"
+            },
+            {
+              "id": "account-id",
+              "name": "account_id",
+              "type": "string",
+              "value": "1"
+            },
+            {
+              "id": "inbox-id",
+              "name": "whatsapp_inbox_id",
+              "type": "string",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-0002-4a11-9c02-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1376,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inp = $('When called by parent').first().json || {};\nconst cfg = $('Config').first().json || {};\nconst raw = String(inp.phone == null ? '' : inp.phone).trim();\nlet compact = raw.replace(/[\\s\\-().]/g, '');\nif (compact.startsWith('00')) compact = '+' + compact.slice(2);\nconst phoneValid = /^\\+[1-9]\\d{7,14}$/.test(compact);\nconst digits = phoneValid ? compact.slice(1) : '';\nconst templateName = String(inp.template_name == null ? '' : inp.template_name).trim();\nconst language = String(inp.language == null ? '' : inp.language).trim();\nconst category = String(inp.category == null ? '' : inp.category).trim();\nconst variablesRaw = inp.variables_json == null ? '' : String(inp.variables_json).trim();\nconst processedRaw = inp.processed_params_json == null ? '' : String(inp.processed_params_json).trim();\n\nfunction parseObj(rawText) {\n  if (!rawText) return { ok: true, value: null };\n  try {\n    const v = JSON.parse(rawText);\n    if (!v || typeof v !== 'object' || Array.isArray(v)) return { ok: false, value: null };\n    return { ok: true, value: v };\n  } catch (e) {\n    return { ok: false, value: null };\n  }\n}\n\nconst processed = parseObj(processedRaw);\nconst variables = parseObj(variablesRaw);\nlet reason = null;\nif (!phoneValid) reason = 'invalid_phone';\nelse if (!templateName || !language) reason = 'invalid_template';\nelse if (processedRaw && !processed.ok) reason = 'invalid_processed_params';\nelse if (!processedRaw && variablesRaw && !variables.ok) reason = 'invalid_variables';\n\nreturn [{ json: {\n  raw,\n  phone: phoneValid ? compact : null,\n  digits,\n  ready: !reason,\n  reason,\n  template_name: templateName,\n  language,\n  category,\n  variables: variables.ok ? variables.value : null,\n  processed_params: processed.ok ? processed.value : null,\n  base_url: String(cfg.base_url || '').replace(/\\/+$/, ''),\n  account_id: String(cfg.account_id || '').trim(),\n  whatsapp_inbox_id: String(cfg.whatsapp_inbox_id || '').trim()\n} }];"
+      },
+      "id": "c2a0e002-0003-4a11-9c02-000000000003",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1152,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2a0e002-0004-4a11-9c02-000000000004",
+              "leftValue": "={{ $json.ready }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-0004-4a11-9c02-000000000004",
+      "name": "Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -928,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize input').first().json;\nconst out = {\n  ok: false,\n  reason: n.reason,\n  phone: n.reason === 'invalid_phone' ? (n.raw || null) : n.phone\n};\nif (n.reason !== 'invalid_phone') {\n  out.template_name = n.template_name || null;\n  out.language = n.language || null;\n}\nreturn [{ json: out }];"
+      },
+      "id": "c2a0e002-0005-4a11-9c02-000000000005",
+      "name": "Return input error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -704,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "method": "GET",
+        "url": "={{ $('Normalize input').first().json.base_url }}/api/v1/accounts/{{ $('Normalize input').first().json.account_id }}/contacts/search",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Normalize input').first().json.phone }}"
+            }
+          ]
+        }
+      },
+      "id": "c2a0e002-0006-4a11-9c02-000000000006",
+      "name": "Search contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -704,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = $('Normalize input').first().json;\nconst body = $input.first().json || {};\nconst payload = Array.isArray(body.payload) ? body.payload : (Array.isArray(body) ? body : []);\nconst want = norm.digits;\nfunction digitsOf(v) {\n  return String(v == null ? '' : v).replace(/\\D/g, '');\n}\nconst matches = payload.filter((c) => c && digitsOf(c.phone_number) === want);\nconst inboxId = Number(norm.whatsapp_inbox_id);\nif (matches.length !== 1) {\n  return [{ json: {\n    phone: norm.phone,\n    digits: want,\n    base_url: norm.base_url,\n    account_id: norm.account_id,\n    inbox_id: inboxId,\n    match_count: matches.length,\n    contact_id: null,\n    contact_name: null,\n    source_id: null\n  } }];\n}\nconst contact = matches[0];\nconst inboxes = Array.isArray(contact.contact_inboxes) ? contact.contact_inboxes : [];\nconst linked = inboxes.find((ci) => ci && ci.inbox && Number(ci.inbox.id) === inboxId);\nreturn [{ json: {\n  phone: norm.phone,\n  digits: want,\n  base_url: norm.base_url,\n  account_id: norm.account_id,\n  inbox_id: inboxId,\n  match_count: 1,\n  contact_id: contact.id,\n  contact_name: contact.name || null,\n  source_id: linked && linked.source_id ? String(linked.source_id) : null\n} }];"
+      },
+      "id": "c2a0e002-0007-4a11-9c02-000000000007",
+      "name": "Exact digit match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2a0e002-0008-4a11-9c02-000000000008",
+              "leftValue": "={{ $json.match_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-0008-4a11-9c02-000000000008",
+      "name": "None?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize input').first().json;\nreturn [{ json: { ok: false, reason: 'contact_not_found', phone: n.phone } }];"
+      },
+      "id": "c2a0e002-0009-4a11-9c02-000000000009",
+      "name": "Return contact_not_found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2a0e002-000a-4a11-9c02-00000000000a",
+              "leftValue": "={{ $json.match_count }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-000a-4a11-9c02-00000000000a",
+      "name": "One?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        16,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize input').first().json;\nconst m = $('Exact digit match').first().json;\nreturn [{ json: { ok: false, reason: 'ambiguous_phone', phone: n.phone, match_count: m.match_count } }];"
+      },
+      "id": "c2a0e002-000b-4a11-9c02-00000000000b",
+      "name": "Return ambiguous_phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "method": "GET",
+        "url": "={{ $('Exact digit match').first().json.base_url }}/api/v1/accounts/{{ $('Exact digit match').first().json.account_id }}/contacts/{{ $('Exact digit match').first().json.contact_id }}/conversations"
+      },
+      "id": "c2a0e002-000c-4a11-9c02-00000000000c",
+      "name": "List contact conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        256,
+        -352
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Exact digit match').first().json;\nconst items = $input.all().map((it) => it.json || {});\nlet list = [];\nif (items.length === 1 && Array.isArray(items[0].payload)) list = items[0].payload;\nelse list = items.filter((c) => c && (c.id !== undefined || c.inbox_id !== undefined));\nconst inboxId = Number(prev.inbox_id);\nconst mine = list.filter((c) => c && Number(c.inbox_id) === inboxId);\nconst rank = { open: 0, pending: 1, snoozed: 2, resolved: 3 };\nfunction activity(c) {\n  const v = c.last_activity_at != null ? c.last_activity_at : c.timestamp;\n  if (typeof v === 'number') return v;\n  const t = Date.parse(String(v || ''));\n  return Number.isFinite(t) ? t : 0;\n}\nmine.sort((a, b) => {\n  const ra = rank[String(a.status || '')];\n  const rb = rank[String(b.status || '')];\n  const da = ra === undefined ? 9 : ra;\n  const db = rb === undefined ? 9 : rb;\n  if (da !== db) return da - db;\n  const ta = activity(a);\n  const tb = activity(b);\n  if (ta !== tb) return tb - ta;\n  return Number(b.id || 0) - Number(a.id || 0);\n});\nconst picked = mine[0] || null;\nreturn [{ json: {\n  phone: prev.phone,\n  digits: prev.digits,\n  contact_id: prev.contact_id,\n  contact_name: prev.contact_name,\n  inbox_id: prev.inbox_id,\n  source_id: prev.source_id,\n  conversation_id: picked ? picked.id : null,\n  conversation_status: picked ? (picked.status || null) : null,\n  has_conversation: !!picked,\n  has_contact_inbox: !!prev.source_id\n} }];"
+      },
+      "id": "c2a0e002-000d-4a11-9c02-00000000000d",
+      "name": "Pick WhatsApp thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2a0e002-000e-4a11-9c02-00000000000e",
+              "leftValue": "={{ $json.has_conversation }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-000e-4a11-9c02-00000000000e",
+      "name": "Has conversation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        736,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Pick WhatsApp thread').first().json;\nreturn [{ json: {\n  phone: p.phone,\n  contact_id: p.contact_id,\n  contact_name: p.contact_name,\n  inbox_id: p.inbox_id,\n  source_id: p.source_id,\n  conversation_id: p.conversation_id,\n  conversation_status: p.conversation_status,\n  created_conversation: false\n} }];"
+      },
+      "id": "c2a0e002-000f-4a11-9c02-00000000000f",
+      "name": "Prepare existing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        -496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2a0e002-0010-4a11-9c02-000000000010",
+              "leftValue": "={{ $json.has_contact_inbox }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2a0e002-0010-4a11-9c02-000000000010",
+      "name": "Has contact inbox?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        976,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $('Exact digit match').first().json.base_url }}/api/v1/accounts/{{ $('Exact digit match').first().json.account_id }}/contacts/{{ $('Pick WhatsApp thread').first().json.contact_id }}/contact_inboxes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ inbox_id: Number($('Pick WhatsApp thread').first().json.inbox_id), source_id: String($('Pick WhatsApp thread').first().json.digits) }) }}"
+      },
+      "id": "c2a0e002-0011-4a11-9c02-000000000011",
+      "name": "Create contact inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1216,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Pick WhatsApp thread').first().json;\nconst body = $input.first().json || {};\nconst row = body.payload && !Array.isArray(body.payload) ? body.payload : body;\nconst source = row.source_id ? String(row.source_id) : String(pick.digits);\nreturn [{ json: { source_id: source } }];"
+      },
+      "id": "c2a0e002-0012-4a11-9c02-000000000012",
+      "name": "Stamp source id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $('Exact digit match').first().json.base_url }}/api/v1/accounts/{{ $('Exact digit match').first().json.account_id }}/conversations",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source_id: String($json.source_id), inbox_id: Number($('Pick WhatsApp thread').first().json.inbox_id), contact_id: Number($('Pick WhatsApp thread').first().json.contact_id), status: 'open' }) }}"
+      },
+      "id": "c2a0e002-0013-4a11-9c02-000000000013",
+      "name": "Create conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1696,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pick = $('Pick WhatsApp thread').first().json;\nconst body = $input.first().json || {};\nconst convo = (body.payload && !Array.isArray(body.payload) && body.payload.id) ? body.payload : body;\nlet sourceId = pick.source_id || pick.digits;\nif ($('Stamp source id').isExecuted()) {\n  const stamped = $('Stamp source id').first().json.source_id;\n  if (stamped) sourceId = stamped;\n}\nreturn [{ json: {\n  phone: pick.phone,\n  contact_id: pick.contact_id,\n  contact_name: pick.contact_name,\n  inbox_id: pick.inbox_id,\n  source_id: sourceId,\n  conversation_id: convo.id,\n  conversation_status: convo.status || 'open',\n  created_conversation: true\n} }];"
+      },
+      "id": "c2a0e002-0014-4a11-9c02-000000000014",
+      "name": "Prepare created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = $('Normalize input').first().json;\nconst ctx = $('Prepare created').isExecuted()\n  ? $('Prepare created').first().json\n  : $('Prepare existing').first().json;\n\nfunction stringifyMap(obj) {\n  const out = {};\n  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;\n  for (const key of Object.keys(obj)) {\n    const v = obj[key];\n    if (v === undefined || v === null) continue;\n    out[String(key)] = String(v);\n  }\n  return out;\n}\n\nlet processed;\nif (norm.processed_params) {\n  processed = JSON.parse(JSON.stringify(norm.processed_params));\n  if (processed.body && typeof processed.body === 'object' && !Array.isArray(processed.body)) {\n    processed.body = stringifyMap(processed.body);\n  }\n} else {\n  processed = { body: stringifyMap(norm.variables || {}) };\n}\n\nconst category = norm.category || 'UTILITY';\nreturn [{ json: {\n  phone: ctx.phone,\n  contact_id: ctx.contact_id,\n  conversation_id: ctx.conversation_id,\n  created_conversation: ctx.created_conversation,\n  content: norm.template_name,\n  template_params: {\n    name: norm.template_name,\n    category,\n    language: norm.language,\n    processed_params: processed\n  }\n} }];"
+      },
+      "id": "c2a0e002-0016-4a11-9c02-000000000016",
+      "name": "Build template message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {},
+        "method": "POST",
+        "url": "={{ $('Exact digit match').first().json.base_url }}/api/v1/accounts/{{ $('Exact digit match').first().json.account_id }}/conversations/{{ $json.conversation_id }}/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content, message_type: 'outgoing', private: false, content_type: 'text', template_params: $json.template_params }) }}"
+      },
+      "id": "c2a0e002-0019-4a11-9c02-000000000019",
+      "name": "Send template message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2416,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const built = $('Build template message').first().json;\nconst msg = $input.first().json || {};\nconst row = (msg.payload && !Array.isArray(msg.payload) && msg.payload.id) ? msg.payload : msg;\nreturn [{ json: {\n  ok: true,\n  phone: built.phone,\n  contact_id: built.contact_id,\n  conversation_id: built.conversation_id,\n  created_conversation: built.created_conversation,\n  message_id: row.id == null ? null : row.id\n} }];"
+      },
+      "id": "c2a0e002-001a-4a11-9c02-00000000001a",
+      "name": "Return sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2656,
+        -352
+      ]
+    }
+  ],
+  "connections": {
+    "When called by parent": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Normalize input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize input": {
+      "main": [
+        [
+          {
+            "node": "Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready?": {
+      "main": [
+        [
+          {
+            "node": "Search contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return input error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search contacts": {
+      "main": [
+        [
+          {
+            "node": "Exact digit match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exact digit match": {
+      "main": [
+        [
+          {
+            "node": "None?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "None?": {
+      "main": [
+        [
+          {
+            "node": "Return contact_not_found",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "One?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One?": {
+      "main": [
+        [
+          {
+            "node": "List contact conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return ambiguous_phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List contact conversations": {
+      "main": [
+        [
+          {
+            "node": "Pick WhatsApp thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick WhatsApp thread": {
+      "main": [
+        [
+          {
+            "node": "Has conversation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has conversation?": {
+      "main": [
+        [
+          {
+            "node": "Prepare existing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Has contact inbox?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare existing": {
+      "main": [
+        [
+          {
+            "node": "Build template message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has contact inbox?": {
+      "main": [
+        [
+          {
+            "node": "Create conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create contact inbox",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create contact inbox": {
+      "main": [
+        [
+          {
+            "node": "Stamp source id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stamp source id": {
+      "main": [
+        [
+          {
+            "node": "Create conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create conversation": {
+      "main": [
+        [
+          {
+            "node": "Prepare created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare created": {
+      "main": [
+        [
+          {
+            "node": "Build template message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build template message": {
+      "main": [
+        [
+          {
+            "node": "Send template message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send template message": {
+      "main": [
+        [
+          {
+            "node": "Return sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

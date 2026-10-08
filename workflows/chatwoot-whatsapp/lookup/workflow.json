@@ -1,0 +1,409 @@
+{
+  "name": "Example - Chatwoot WhatsApp lookup",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "phone",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "c1a0e001-0001-4a11-9c01-000000000001",
+      "name": "When called by parent",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "base-url",
+              "name": "base_url",
+              "type": "string",
+              "value": "https://example.chatwoot.com"
+            },
+            {
+              "id": "account-id",
+              "name": "account_id",
+              "type": "string",
+              "value": "1"
+            },
+            {
+              "id": "inbox-id",
+              "name": "whatsapp_inbox_id",
+              "type": "string",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a0e001-0002-4a11-9c01-000000000002",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -736,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inp = $('When called by parent').first().json || {};\nconst cfg = $('Config').first().json || {};\nconst raw = String(inp.phone == null ? '' : inp.phone).trim();\nlet compact = raw.replace(/[\\s\\-().]/g, '');\nif (compact.startsWith('00')) compact = '+' + compact.slice(2);\nconst valid = /^\\+[1-9]\\d{7,14}$/.test(compact);\nconst digits = valid ? compact.slice(1) : '';\nreturn [{ json: {\n  raw,\n  phone: valid ? compact : null,\n  digits,\n  valid,\n  base_url: String(cfg.base_url || '').replace(/\\/+$/, ''),\n  account_id: String(cfg.account_id || '').trim(),\n  whatsapp_inbox_id: String(cfg.whatsapp_inbox_id || '').trim()\n} }];"
+      },
+      "id": "c1a0e001-0003-4a11-9c01-000000000003",
+      "name": "Normalize phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "e164-ok",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a0e001-0004-4a11-9c01-000000000004",
+      "name": "E.164?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -288,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize phone').first().json;\nreturn [{ json: { ok: false, reason: 'invalid_phone', phone: n.raw || null } }];"
+      },
+      "id": "c1a0e001-0005-4a11-9c01-000000000005",
+      "name": "Return invalid_phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Normalize phone').first().json.base_url }}/api/v1/accounts/{{ $('Normalize phone').first().json.account_id }}/contacts/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Normalize phone').first().json.phone }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a0e001-0006-4a11-9c01-000000000006",
+      "name": "Search contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = $('Normalize phone').first().json;\nconst body = $input.first().json || {};\nconst payload = Array.isArray(body.payload) ? body.payload : (Array.isArray(body) ? body : []);\nconst want = norm.digits;\nfunction digitsOf(v) {\n  return String(v == null ? '' : v).replace(/\\D/g, '');\n}\nconst matches = payload.filter((c) => c && digitsOf(c.phone_number) === want);\nconst inboxId = Number(norm.whatsapp_inbox_id);\nif (matches.length !== 1) {\n  return [{ json: {\n    phone: norm.phone,\n    digits: want,\n    base_url: norm.base_url,\n    account_id: norm.account_id,\n    inbox_id: inboxId,\n    match_count: matches.length,\n    contact_id: null,\n    contact_name: null,\n    source_id: null\n  } }];\n}\nconst contact = matches[0];\nconst inboxes = Array.isArray(contact.contact_inboxes) ? contact.contact_inboxes : [];\nconst linked = inboxes.find((ci) => ci && ci.inbox && Number(ci.inbox.id) === inboxId);\nreturn [{ json: {\n  phone: norm.phone,\n  digits: want,\n  base_url: norm.base_url,\n  account_id: norm.account_id,\n  inbox_id: inboxId,\n  match_count: 1,\n  contact_id: contact.id,\n  contact_name: contact.name || null,\n  source_id: linked && linked.source_id ? String(linked.source_id) : null\n} }];"
+      },
+      "id": "c1a0e001-0007-4a11-9c01-000000000007",
+      "name": "Exact digit match",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "match-none",
+              "leftValue": "={{ $json.match_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a0e001-0008-4a11-9c01-000000000008",
+      "name": "None?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        384,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize phone').first().json;\nreturn [{ json: { ok: false, reason: 'contact_not_found', phone: n.phone } }];"
+      },
+      "id": "c1a0e001-0009-4a11-9c01-000000000009",
+      "name": "Return contact_not_found",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "match-one",
+              "leftValue": "={{ $json.match_count }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1a0e001-000a-4a11-9c01-00000000000a",
+      "name": "One?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        608,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $('Normalize phone').first().json;\nconst m = $('Exact digit match').first().json;\nreturn [{ json: { ok: false, reason: 'ambiguous_phone', phone: n.phone, match_count: m.match_count } }];"
+      },
+      "id": "c1a0e001-000b-4a11-9c01-00000000000b",
+      "name": "Return ambiguous_phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Exact digit match').first().json.base_url }}/api/v1/accounts/{{ $('Exact digit match').first().json.account_id }}/contacts/{{ $('Exact digit match').first().json.contact_id }}/conversations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "c1a0e001-000c-4a11-9c01-00000000000c",
+      "name": "List contact conversations",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        832,
+        -304
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Exact digit match').first().json;\nconst items = $input.all().map((it) => it.json || {});\nlet list = [];\nif (items.length === 1 && Array.isArray(items[0].payload)) list = items[0].payload;\nelse list = items.filter((c) => c && (c.id !== undefined || c.inbox_id !== undefined));\nconst inboxId = Number(prev.inbox_id);\nconst mine = list.filter((c) => c && Number(c.inbox_id) === inboxId);\nconst rank = { open: 0, pending: 1, snoozed: 2, resolved: 3 };\nfunction activity(c) {\n  const v = c.last_activity_at != null ? c.last_activity_at : c.timestamp;\n  if (typeof v === 'number') return v;\n  const t = Date.parse(String(v || ''));\n  return Number.isFinite(t) ? t : 0;\n}\nmine.sort((a, b) => {\n  const ra = rank[String(a.status || '')];\n  const rb = rank[String(b.status || '')];\n  const da = ra === undefined ? 9 : ra;\n  const db = rb === undefined ? 9 : rb;\n  if (da !== db) return da - db;\n  const ta = activity(a);\n  const tb = activity(b);\n  if (ta !== tb) return tb - ta;\n  return Number(b.id || 0) - Number(a.id || 0);\n});\nconst picked = mine[0] || null;\nreturn [{ json: {\n  ok: true,\n  phone: prev.phone,\n  contact_id: prev.contact_id,\n  contact_name: prev.contact_name,\n  inbox_id: prev.inbox_id,\n  source_id: prev.source_id,\n  conversation_id: picked ? picked.id : null,\n  conversation_status: picked ? (picked.status || null) : null\n} }];"
+      },
+      "id": "c1a0e001-000d-4a11-9c01-00000000000d",
+      "name": "Pick WhatsApp thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        -304
+      ]
+    }
+  ],
+  "connections": {
+    "When called by parent": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Normalize phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize phone": {
+      "main": [
+        [
+          {
+            "node": "E.164?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E.164?": {
+      "main": [
+        [
+          {
+            "node": "Search contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return invalid_phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search contacts": {
+      "main": [
+        [
+          {
+            "node": "Exact digit match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exact digit match": {
+      "main": [
+        [
+          {
+            "node": "None?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "None?": {
+      "main": [
+        [
+          {
+            "node": "Return contact_not_found",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "One?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One?": {
+      "main": [
+        [
+          {
+            "node": "List contact conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return ambiguous_phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List contact conversations": {
+      "main": [
+        [
+          {
+            "node": "Pick WhatsApp thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
